@@ -303,7 +303,7 @@ No UDL file is ever written or parsed. The entire interface is defined by your R
 
 ## Proposed FFI ownership contract
 
-The [cross-family FFI ownership contract](https://github.com/tschk/equilibrium/blob/main/docs/FFI-OWNERSHIP-PROPOSAL.md) is a proposal, not a claim that eqswift conforms or interoperates with other projects. UniFFI behavior for the resolved version (0.32.1 in `Cargo.lock`) is unverified. Before an adapter opts in:
+The [cross-family FFI ownership contract](https://github.com/softwarecorporation/equilibrium/blob/main/docs/FFI-OWNERSHIP-PROPOSAL.md) is a proposal, not a claim that eqswift conforms or interoperates with other projects. UniFFI behavior for the resolved version (0.32.1 in `Cargo.lock`) is unverified. Before an adapter opts in:
 
 1. Inspect the generated Swift and C bindings for `Person`/`Greeter` and the resolved UniFFI runtime and documentation; document string and object ownership, release, lifetimes, and failure behavior for each supported target.
 2. Extend `eq-swift/tests/integration.rs` beyond binding-generation smoke tests with Swift-to-Rust transfer, release and error-cleanup tests, plus callback shutdown and incompatible contract-version rejection tests where the adapter supports them.
