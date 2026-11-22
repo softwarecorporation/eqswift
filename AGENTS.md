@@ -16,7 +16,8 @@ This is a Cargo workspace with three crates:
 - **`cargo-eqswift/`** — cargo subcommand for better DX
   - `cargo eqswift swift` — generate Swift bindings
   - `cargo eqswift build` — build + generate Swift
-  - `cargo eqswift swift --static` — static link hints for iOS
+  - `cargo eqswift swift --static` — generate raw bindings from a static archive
+  - `cargo eqswift package` — build Apple static slices, an XCFramework, and a Swift package (macOS/full Xcode required)
 
 ## Build Steps
 
@@ -64,7 +65,7 @@ This is a Cargo workspace with three crates:
 - **No build.rs.** Everything is driven by proc macros at compile time.
 - **Library crate-type:** `cdylib`, `staticlib`, `rlib` (required for FFI).
 - **Proc-macro re-exports:** `eqswift::Record`, `eqswift::Object`, `eqswift::Enum`, `eqswift::Error` are just re-exports of `uniffi::Record`, `uniffi::Object`, etc. This lets users write `#[derive(eqswift::Record)]` instead of `#[derive(uniffi::Record)]`.
-- **Binary name:** `uniffi-bindgen`. It requires `uniffi = { version = "...", features = ["cli"] }`.
+- **Standalone binary:** `uniffi-bindgen` requires the eqswift `cli` feature. `cargo-eqswift` embeds its own generator; downstream crates need no bindgen binary.
 - **cargo subcommand:** `cargo-eqswift`. Install with `cargo install --path cargo-eqswift`.
 
 ## Important: UniFFI must be a direct dependency
@@ -97,10 +98,11 @@ When editing `eq-swift/src/lib.rs`:
 
 ## Swift Side
 
-The `swift/` directory is an optional sample Swift package. Generated bindings go in `swift/Generated/` via `cargo eqswift swift --out-dir swift/Generated` (gitignored). This repo is an FFI framework only — no app transports or product logic in the `eqswift` crate.
+The `swift/` directory is a sample consumer of the generated binary package. This repo is an FFI framework only — no app transports or product logic in the `eqswift` crate.
 
-- `swift/Package.swift` consumes `Generated/` and links `target/<profile>/libeqswift` (see `EQSWIFT_PROFILE`, `EQSWIFT_STATIC`).
-- Link the Rust library (`libeqswift.dylib` / `.so` / `.a`) to the Swift target.
+- Generate with `cargo eqswift package --package eqswift --name EqSwift --out-dir swift/Package`, then run `swift run --package-path swift EqSwiftSmoke`.
+- `examples/swift-consumer` consumes the demo's generated `DemoKit` package. See README for the command.
+- Generated package directories must not exist before packaging. The CLI never overwrites an existing package.
 
 ## Testing
 
@@ -109,6 +111,8 @@ Integration tests live in `eq-swift/tests/integration.rs` and verify:
 1. Library compiles and `.dylib`/`.so` exists
 2. Swift bindings are generated with correct files
 3. Exported items (`Person`, `Greeter`, `add`, `greet`) appear in generated Swift
+
+`cargo-eqswift/tests/workflow.rs` tests downstream generation without a bindgen binary. On macOS it also builds all five Apple targets, relocates the generated package, runs a SwiftPM consumer, and links iOS device/simulator builds. Install the five Rust Apple targets listed in README before running it. `EQSWIFT_TEST_SIMULATOR` optionally selects an already booted simulator UUID for execution.
 
 A quick smoke test is:
 
@@ -122,7 +126,7 @@ head -n 20 /tmp/eqswift-test/eqswift.swift
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `no bin target named uniffi-bindgen` | Missing `[[bin]]` or `--features cli` | Check `eq-swift/Cargo.toml` |
+| `no bin target named uniffi-bindgen` | Direct invocation of a binary the downstream crate does not own | Use `cargo eqswift build` or `cargo eqswift package` |
 | `setup_scaffolding!` not found | Wrong UniFFI version or missing `setup!()` | Ensure `eqswift::setup!()` is called |
 | Empty generated Swift | Bindings generated before library built | Build library first, then run bindgen |
 | Type not in Swift | Not public / not in exported signature | Make type `pub` and use it in an exported function |
@@ -132,6 +136,7 @@ head -n 20 /tmp/eqswift-test/eqswift.swift
 ## Dependencies
 
 - `uniffi = "0.32"` — core FFI framework
+- `uniffi_bindgen = "=0.32.1"` — CLI-owned Swift generator
 - `eqswift-macros` — our thin proc-macro wrappers
 - `cargo-eqswift` — cargo subcommand for binding generation
 

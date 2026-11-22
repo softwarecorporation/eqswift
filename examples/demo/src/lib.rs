@@ -5,11 +5,11 @@
 //! cargo build --manifest-path examples/demo/Cargo.toml
 //! ```
 //!
-//! Generate Swift bindings:
+//! Build an Apple Swift package (on macOS after installing cargo-eqswift):
 //! ```bash
-//! cargo run --bin uniffi-bindgen generate \
-//!   --library target/debug/libeqswift_demo.dylib \
-//!   --language swift --out-dir examples/demo/swift
+//! cargo eqswift package --manifest-path examples/demo/Cargo.toml \
+//!   --name DemoKit --out-dir examples/demo/swift/DemoKit
+//! swift run --package-path examples/swift-consumer Consumer
 //! ```
 
 eqswift::setup!();

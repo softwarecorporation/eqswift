@@ -9,6 +9,8 @@
 eq-swift/swift/Generated/
 swift/Generated/
 examples/otto-ffi/swift/
+swift/Package/
+examples/demo/swift/
 
 # All build targets (including workspace members)
 **/target/
@@ -16,7 +18,8 @@ examples/otto-ffi/target/
 examples/demo/Cargo.lock
 
 # Swift
-swift/.build/
+**/.build/
+**/.swiftpm/
 swift/Packages/
 swift/*.xcworkspace
 swift/*.xcodeproj

@@ -39,11 +39,13 @@
 //! }
 //! ```
 //!
-//! Then build and generate Swift bindings:
+//! Then build an Apple Swift package on macOS with full Xcode and the Rust Apple targets installed:
 //! ```bash
-//! cargo build
-//! cargo eqswift swift --out-dir swift/Generated
+//! cargo eqswift package --name MyRustAPI --out-dir dist/MyRustAPI
 //! ```
+//! The generated package contains Swift sources and a static XCFramework. Consumers
+//! need no Rust toolchain or custom build script. For raw bindings on Linux or macOS,
+//! use `cargo eqswift build --out-dir swift/Generated` instead.
 //!
 //! # Macros
 //!

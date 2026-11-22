@@ -1,28 +1,46 @@
 # eqswift
 
-FFI framework only: UniFFI proc-macro wrappers + `cargo eqswift` for Swift bindings. No transports or app logic in the library crate — annotate Rust, build, generate Swift (no UDL, no `build.rs`).
+Export Rust APIs to Swift with UniFFI, then build a Swift package containing an Apple XCFramework with `cargo eqswift package`. Consumers need neither Rust nor a custom build script. The Rust interface uses proc macros: no UDL files or `build.rs`.
 
-## Quick Start
+## Build an Apple Swift package
 
-### 1. Add dependencies
+### 1. Install the tool
 
-```toml
-[dependencies]
-eqswift = "0.1"
-uniffi = "0.32"
+This workflow requires macOS, full Xcode selected with `xcode-select`, and Rust installed through rustup. No signing identity is needed to create the package.
+
+The packaging command is currently available from this checkout, not the published 0.1.3 CLI:
+
+```bash
+cargo install --path cargo-eqswift --locked
+rustup target add aarch64-apple-darwin x86_64-apple-darwin \
+  aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 ```
 
-*(UniFFI must be a direct dependency because its proc-macros emit `::uniffi::...` paths.)*
+### 2. Configure your Rust library
 
-### 2. Write Rust
+```toml
+[package]
+name = "my-rust-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+eqswift = "0.1.3"
+uniffi = "=0.32.1"
+```
+
+UniFFI must be a direct dependency because its macros emit `::uniffi` paths. `cargo-eqswift` owns the generator, so your library needs no `uniffi-bindgen` binary or `cli` feature. The CLI uses UniFFI 0.32.1. Keep your runtime compatible with that generator.
 
 ```rust
 // src/lib.rs
 eqswift::setup!();
 
 #[eqswift::export]
-pub fn add(a: u32, b: u32) -> u32 {
-    a + b
+pub fn greet(name: String) -> String {
+    format!("Hello, {name}!")
 }
 
 #[derive(eqswift::Record)]
@@ -37,289 +55,134 @@ pub struct Greeter;
 #[eqswift::export]
 impl Greeter {
     #[uniffi::constructor]
-    pub fn new() -> Self {
-        Self
-    }
-    pub fn greet(&self, name: String) -> String {
-        format!("Hello, {name}!")
-    }
+    pub fn new() -> Self { Self }
+
     pub fn greet_person(&self, person: Person) -> String {
         format!("Hello, {}! You are {} years old.", person.name, person.age)
     }
 }
 ```
 
-### 3. Build
+### 3. Package the library
+
+Run from your Rust crate, or select its manifest and workspace package explicitly:
 
 ```bash
-cargo build
+cargo eqswift package --name MyRustAPI --out-dir dist/MyRustAPI
+# From another directory:
+cargo eqswift package --manifest-path path/to/Cargo.toml --package my-rust-api \
+  --name MyRustAPI --out-dir dist/MyRustAPI
 ```
 
-### 4. Generate Swift bindings
+The command builds release static libraries for five targets and combines them into three platform slices:
 
-```bash
-# Using cargo-eqswift (recommended)
-cargo eqswift swift
+- macOS: `aarch64-apple-darwin` and `x86_64-apple-darwin`.
+- iOS device: `aarch64-apple-ios`.
+- iOS Simulator: `aarch64-apple-ios-sim` and `x86_64-apple-ios`. Despite its name, the latter is a simulator target.
 
-# Or the long way with uniffi-bindgen directly
-cargo run --features cli --bin uniffi-bindgen generate \
-     --library target/debug/libeqswift.dylib \
-     --language swift --out-dir swift/Generated
-```
+Bindings are read from the actual static archives. Each slice must export the same Swift interface. Target-dependent exports fail packaging rather than silently shipping incompatible bindings.
 
-*(On Linux use `.so`, on Windows use `.dll`)*
+The result contains `Package.swift`, `Sources/MyRustAPI/*.swift`, and `Artifacts/MyRustAPIFFI.xcframework`. Headers and Clang module maps travel inside the XCFramework. You can move the entire directory without the Cargo target directory or Rust source tree.
 
-### 5. Use from Swift
+Output paths must not already exist. Packaging uses a temporary sibling directory and publishes the finished package only after assembly succeeds. To rebuild, choose a new versioned directory or remove your disposable generated output first.
+
+### 4. Consume from Swift
+
+In Xcode, add the generated directory as a local package and select the `MyRustAPI` product. In another Swift package:
 
 ```swift
-import eqswift
+// In Package.swift:
+dependencies: [.package(path: "../dist/MyRustAPI")],
+targets: [
+    .executableTarget(
+        name: "App",
+        dependencies: [.product(name: "MyRustAPI", package: "MyRustAPI")]
+    )
+]
+```
 
-let sum = add(a: 1, b: 2)
-let greeter = Greeter()
-let msg = greeter.greet(name: "World")
+```swift
+import MyRustAPI
+
+print(greet(name: "香港 🦀"))
 let person = Person(name: "Alice", age: 30)
-let msg2 = greeter.greetPerson(person: person)
+print(Greeter().greetPerson(person: person))
 ```
 
-## Project Layout
+The generated package uses a local SwiftPM binary target, not unsafe linker flags, `DYLD_LIBRARY_PATH`, or consumer-side Cargo commands. Keep the generated `Package.swift`, `Sources`, and `Artifacts` together. Remote ZIP hosting, checksums, signing, notarization, and publication are not automated.
 
-```
-eqswift/
-├── Cargo.toml                 # Workspace root
-├── README.md                  # This file
-├── AGENTS.md                  # Agent / contributor notes
-├── eqswift-macros/            # Proc-macro crate
-│   ├── Cargo.toml
-│   └── src/lib.rs             # #[eqswift::export], eqswift::setup!()
-├── eq-swift/                  # Your Rust library (crate name = "eqswift")
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs             # Your Rust code
-│       └── bin/
-│           └── uniffi-bindgen.rs   # Binding generator binary
-├── cargo-eqswift/             # cargo subcommand
-│   ├── Cargo.toml
-│   └── src/main.rs            # cargo eqswift swift / build
-├── examples/
-│   └── otto-ffi/              # Real-world example: AI autocomplete backend
-│       ├── Cargo.toml
-│       └── src/lib.rs
-└── swift/                     # Swift package
-    ├── Package.swift
-    └── Generated/             # cargo eqswift swift (not committed)
-```
+## Command reference
 
-## Installing `cargo eqswift`
+- `cargo eqswift package`: release XCFramework and Swift package. Defaults to `swift/Package`; `--name` defaults to the Rust library target name with hyphens replaced by underscores.
+- `package --targets aarch64-apple-darwin`: package a subset of supported targets. Consumers can build only for included architectures and platforms.
+- `package --debug`: use debug Rust libraries.
+- `cargo eqswift build`: build the selected library and emit raw Swift bindings. Works on Linux and macOS without Xcode.
+- `cargo eqswift swift`: emit raw bindings from existing artifacts. `--release`, `--target`, `--static`, and `--out-dir` select the input and output. `--static` prefers an archive; it does not create an XCFramework.
+- All three commands accept `--manifest-path`, `--package`, `--features feature1,feature2`, `--no-default-features`, `--locked`, and `--config path/to/uniffi.toml`.
+- `build -- <cargo arguments>` passes additional arguments to Cargo. Use the named eqswift options for target/profile/features so artifact lookup matches the build.
+
+Per-crate `uniffi.toml` configuration is loaded through Cargo metadata, including renamed Swift modules. `--config` overrides it. The generated product name controls the Swift import; it does not rename Rust symbols. Packages with more than one UniFFI component include all generated sources and module maps.
+
+The generated manifest declares macOS 13 and iOS 13 minimums. Use deployment targets compatible with your Rust dependencies. If you build with higher `MACOSX_DEPLOYMENT_TARGET` or `IPHONEOS_DEPLOYMENT_TARGET`, raise the generated manifest's platform minimums to match. Native dependencies still need their cross-compilation toolchains and SDK support. Additional native libraries or frameworks may require linker settings in the generated manifest. tvOS, watchOS, visionOS, and Mac Catalyst are not supported by this packaging command.
+
+## Run the repository examples
+
+On macOS, after installing the CLI and targets above:
 
 ```bash
-cargo install cargo-eqswift
+cargo eqswift package --manifest-path examples/demo/Cargo.toml \
+  --name DemoKit --out-dir examples/demo/swift/DemoKit
+swift run --package-path examples/swift-consumer Consumer
 ```
 
-Then use it from any eqswift project:
+Expected output: `PASS: Swift consumer called Rust; Unicode, records, object creation/drop, and toggles`.
+
+The repo's `swift/` directory is another consumer, not a build-script workaround:
 
 ```bash
-cargo eqswift swift                    # generate Swift bindings
-cargo eqswift swift --release          # use release build
-cargo eqswift build                    # cargo build + generate Swift
-cargo eqswift swift --static           # static lib link hints (iOS ship)
+cargo eqswift package --package eqswift --name EqSwift --out-dir swift/Package
+swift run --package-path swift EqSwiftSmoke
 ```
 
-## Detailed Usage
-
-### `eqswift::setup!()`
-
-Call **once** at the top of your `lib.rs`. It expands to `uniffi::setup_scaffolding!()` and configures the crate for proc-macro-based FFI.
-
-```rust
-eqswift::setup!();
-```
-
-### `#[eqswift::export]`
-
-Annotate free functions or `impl` blocks to expose them to Swift.
-
-**Free functions:**
-```rust
-#[eqswift::export]
-pub fn calculate(x: f64) -> f64 {
-    x * 2.0
-}
-```
-
-**Object methods:**
-```rust
-#[derive(eqswift::Object)]
-pub struct Calculator;
-
-#[eqswift::export]
-impl Calculator {
-    #[uniffi::constructor]
-    pub fn new() -> Self { Self }
-
-    pub fn double(&self, x: f64) -> f64 {
-        x * 2.0
-    }
-}
-```
-
-### Derive macros
-
-| Macro | Rust type | Swift type |
-|-------|-----------|------------|
-| `#[derive(eqswift::Record)]` | `struct` with public fields | `struct` (value type) |
-| `#[derive(eqswift::Object)]` | `struct` + `impl` block | `class` (reference type) |
-| `#[derive(eqswift::Enum)]` | `enum` | `enum` |
-| `#[derive(eqswift::Error)]` | `enum` implementing `Error` | `Error` |
-
-### Supported types
-
-Most Rust primitives and common types map directly:
-
-| Rust | Swift |
-|------|-------|
-| `u32` | `UInt32` |
-| `i32` | `Int32` |
-| `u64` | `UInt64` |
-| `f64` | `Double` |
-| `bool` | `Bool` |
-| `String` | `String` |
-| `Vec<T>` | `[T]` |
-| `Option<T>` | `T?` |
-| `Result<T, E>` | throws |
-
-See [UniFFI type docs](https://mozilla.github.io/uniffi-rs/latest/types/builtin_types.html) for the full list.
-
-## Generating bindings
-
-### With `cargo eqswift` (recommended)
+For raw binding generation on Linux:
 
 ```bash
-# Generate Swift bindings (debug build)
-cargo eqswift swift
-
-# Generate Swift bindings (release build)
-cargo eqswift swift --release
-
-# Build + generate in one step
-cargo eqswift build
-
-# Static linking (uses libeqswift.a when built)
-cargo eqswift swift --static --release
-EQSWIFT_STATIC=1 EQSWIFT_PROFILE=release swift build
+cargo eqswift build --manifest-path examples/demo/Cargo.toml --out-dir target/demo-swift
 ```
-
-### With `uniffi-bindgen` directly
-
-#### macOS
-
-```bash
-cargo run --features cli --bin uniffi-bindgen generate \
-  --library target/debug/libeqswift.dylib \
-  --language swift --out-dir eq-swift/swift/Generated
-```
-
-#### Linux
-
-```bash
-cargo run --features cli --bin uniffi-bindgen generate \
-  --library target/debug/libeqswift.so \
-  --language swift --out-dir eq-swift/swift/Generated
-```
-
-#### Windows
-
-```bash
-cargo run --features cli --bin uniffi-bindgen generate ^
-  --library target/debug/eqswift.dll ^
-  --language swift --out-dir eq-swift/swift/Generated
-```
-
-#### Release builds
-
-Replace `target/debug/` with `target/release/` and add `--release` to `cargo build`.
-
-#### Multi-platform / XCFramework
-
-For shipping to iOS/macOS, wrap the generated Swift code and the Rust library in an XCFramework:
-
-```bash
-# Build for multiple targets
-cargo build --release --target aarch64-apple-darwin
-cargo build --release --target aarch64-apple-ios
-
-# Generate bindings once (metadata is arch-agnostic)
-cargo build -p eqswift --release --target aarch64-apple-darwin
-cargo eqswift swift --release --target aarch64-apple-darwin --out-dir swift/Generated
-```
-
-## Swift Package integration
-
-The generated files are:
-- `eqswift.swift` — Swift types and API
-- `eqswiftFFI.h` — C FFI header
-- `eqswiftFFI.modulemap` — Clang module map
-
-Run `cargo eqswift swift --out-dir swift/Generated` from the repo root. This repo's `swift/Package.swift` reads bindings from `swift/Generated/` and links `../../target/<profile>/libeqswift` (dynamic) or `-force_load` `libeqswift.a` when `EQSWIFT_STATIC=1`. Set `EQSWIFT_PROFILE=release` for release Rust artifacts.
 
 ## Troubleshooting
 
-### "no bin target named `uniffi-bindgen`"
-
-Make sure `eq-swift/Cargo.toml` has the `[[bin]]` section and enable the `cli` feature: `cargo run -p eqswift --features cli --bin uniffi-bindgen`.
-
-### Generated Swift files are empty / old
-
-Delete `eq-swift/swift/Generated/` and re-run the bindgen command.
-
-### `dyld: Library not loaded`
-
-When running Swift tests that load the Rust library, the dynamic linker needs to find the `.dylib`. Set:
-
-```bash
-export DYLD_LIBRARY_PATH="$(pwd)/target/debug:$DYLD_LIBRARY_PATH"
-```
-
-### Type not found in generated bindings
-
-Only types used in `#[eqswift::export]` functions or marked with `#[derive(...)]` are exported. Make sure the type is public and appears in a signature or derive.
-
-### `cargo eqswift` not found
-
-Install it first:
-
-```bash
-cargo install cargo-eqswift
-```
+- **Missing Rust targets:** run the exact `rustup target add ...` command printed by eqswift, using the active toolchain.
+- **Xcode unavailable:** install full Xcode, accept its license, and select its developer directory with `xcode-select`. Command Line Tools alone cannot create XCFrameworks.
+- **Ambiguous workspace:** pass `--package`. Dependency crates are never guessed as the workspace library.
+- **Missing static archive:** include `staticlib` in `[lib].crate-type`.
+- **Binding metadata/version error:** use UniFFI compatible with the CLI's 0.32.1 generator. Do not mix generated sources from different builds.
+- **Different interfaces between targets:** remove platform-specific exported APIs or produce separate packages for those platforms.
+- **Output already exists:** choose a new `--out-dir`. eqswift never overwrites an existing package.
+- **No module maps:** keep UniFFI Swift `generate_module_map` enabled.
+- **Unsupported architecture in Xcode:** rebuild the package with the required target. A macOS-only package cannot build an iOS app.
 
 ## How it works
 
-1. `eqswift::setup!()` calls `uniffi::setup_scaffolding!()`, which sets up the proc-macro metadata system.
-2. `#[eqswift::export]` wraps `#[uniffi::export]`, registering functions and methods in the metadata.
-3. `#[derive(eqswift::Record)]` re-exports `uniffi::Record`, which implements the FFI conversion traits.
-4. `cargo build` embeds all metadata into the compiled library.
-5. `cargo eqswift` (or `uniffi-bindgen`) reads the metadata from the library and generates Swift bindings.
+`eqswift::setup!()` and `#[eqswift::export]` wrap UniFFI's proc macros. `Record`, `Object`, `Enum`, and `Error` re-export UniFFI derives. UniFFI owns the generated ABI, conversion code, and object lifetime machinery. eqswift owns Cargo package selection, generation, Apple slice assembly, and the consumable Swift package layout. Product transports and app logic do not belong in the framework.
 
-No UDL file is ever written or parsed. The entire interface is defined by your Rust code.
+The earlier 0.1.2 workflow deliberately removed transport code but stopped at raw bindings and linker hints. The 0.1.3 maintenance work verified generation, not Swift compilation or XCFramework distribution. The new packaging workflow closes that tooling gap without replacing UniFFI.
+
+## Verification
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets --features cli -- -D warnings
+cargo test --locked --workspace --features cli
+```
+
+On macOS, install all five Rust targets first. `cargo test -p cargo-eqswift --test workflow` packages the real demo without a bindgen binary, moves its output, and runs a separate SwiftPM consumer. It also builds that consumer with Xcode for generic iOS device and simulator destinations without signing. Set `EQSWIFT_TEST_SIMULATOR` to an already booted simulator UUID to run the consumer inside that simulator as well. CI installs the targets and runs the packaging tests.
+
+Verified on an Apple Silicon Mac satellite with Xcode 27.3: all five Rust targets, macOS Swift execution, iOS device and both simulator-architecture links, and arm64 iOS Simulator execution. Intel macOS execution, physical iOS device execution, signing, App Store distribution, and older deployment-target runtime behavior are not verified.
 
 ## Proposed FFI ownership contract
 
-The [cross-family FFI ownership contract](https://github.com/softwarecorporation/equilibrium/blob/main/docs/FFI-OWNERSHIP-PROPOSAL.md) is a proposal, not a claim that eqswift conforms or interoperates with other projects. UniFFI behavior for the resolved version (0.32.1 in `Cargo.lock`) is unverified. Before an adapter opts in:
-
-1. Inspect the generated Swift and C bindings for `Person`/`Greeter` and the resolved UniFFI runtime and documentation; document string and object ownership, release, lifetimes, and failure behavior for each supported target.
-2. Extend `eq-swift/tests/integration.rs` beyond binding-generation smoke tests with Swift-to-Rust transfer, release and error-cleanup tests, plus callback shutdown and incompatible contract-version rejection tests where the adapter supports them.
-
-## Testing
-
-Run the integration smoke tests:
-
-```bash
-cargo test -p eqswift --test integration
-```
-
-This verifies:
-- Library compiles
-- Swift bindings are generated
-- Exported items appear in generated Swift
+The [cross-family FFI ownership contract](https://github.com/softwarecorporation/equilibrium/blob/main/docs/FFI-OWNERSHIP-PROPOSAL.md) is a proposal, not a claim that eqswift conforms or interoperates with other projects. The packaging smoke consumer does not establish full ownership-contract conformance. Before an adapter opts in, verify string and object ownership, error cleanup, callback shutdown, and incompatible contract-version rejection where supported.
 
 ## License
 
