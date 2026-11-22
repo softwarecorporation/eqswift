@@ -1,6 +1,6 @@
 [package]
 name = "eqswift-macros"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 authors = ["Max Carter <max@undivisible.dev>"]
 description = "Proc-macros for eqswift — zero-config Rust-to-Swift FFI"
@@ -8,7 +8,7 @@ license = "ISC"
 repository = "https://github.com/softwarecorporation/eqswift"
 keywords = ["ffi", "swift", "uniffi", "bindings", "proc-macro"]
 categories = ["development-tools::ffi"]
-rust-version = "1.87"
+rust-version = "1.91"
 
 [lib]
 proc-macro = true

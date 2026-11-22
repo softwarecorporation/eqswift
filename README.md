@@ -6,12 +6,12 @@ Export Rust APIs to Swift with UniFFI, then build a Swift package containing an 
 
 ### 1. Install the tool
 
-This workflow requires macOS, full Xcode selected with `xcode-select`, and Rust installed through rustup. No signing identity is needed to create the package.
+This workflow requires macOS, full Xcode selected with `xcode-select`, and Rust 1.91 or newer installed through rustup. No signing identity is needed to create the package.
 
-The packaging command is currently available from this checkout, not the published 0.1.3 CLI:
+Install the 0.2.0 CLI from crates.io:
 
 ```bash
-cargo install --path cargo-eqswift --locked
+cargo install cargo-eqswift --version 0.2.0 --locked
 rustup target add aarch64-apple-darwin x86_64-apple-darwin \
   aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 ```
@@ -28,7 +28,7 @@ edition = "2021"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-eqswift = "0.1.3"
+eqswift = "0.2.0"
 uniffi = "=0.32.1"
 ```
 
@@ -167,6 +167,8 @@ cargo eqswift build --manifest-path examples/demo/Cargo.toml --out-dir target/de
 `eqswift::setup!()` and `#[eqswift::export]` wrap UniFFI's proc macros. `Record`, `Object`, `Enum`, and `Error` re-export UniFFI derives. UniFFI owns the generated ABI, conversion code, and object lifetime machinery. eqswift owns Cargo package selection, generation, Apple slice assembly, and the consumable Swift package layout. Product transports and app logic do not belong in the framework.
 
 The earlier 0.1.2 workflow deliberately removed transport code but stopped at raw bindings and linker hints. The 0.1.3 maintenance work verified generation, not Swift compilation or XCFramework distribution. The new packaging workflow closes that tooling gap without replacing UniFFI.
+
+Version 0.2.0 releases the three crates together. Existing Rust exports and UniFFI annotations remain unchanged. The repo's `swift/` package is now an executable consumer sample; use the directory emitted by `cargo eqswift package` as your library dependency. `EQSWIFT_PROFILE`, `EQSWIFT_STATIC`, and the old unsafe-linker sample no longer apply. The workspace requires Rust 1.91, matching the locked Cargo metadata dependency.
 
 ## Verification
 

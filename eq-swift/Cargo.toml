@@ -1,6 +1,6 @@
 [package]
 name = "eqswift"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 authors = ["Max Carter <max@undivisible.dev>"]
 description = "Zero-config Rust-to-Swift FFI — no UDL, no build.rs, just annotations"
@@ -8,7 +8,7 @@ license = "ISC"
 repository = "https://github.com/softwarecorporation/eqswift"
 keywords = ["ffi", "swift", "uniffi", "bindings", "ios"]
 categories = ["development-tools::ffi"]
-rust-version = "1.87"
+rust-version = "1.91"
 
 [lib]
 crate-type = ["cdylib", "staticlib", "rlib"]
@@ -23,7 +23,7 @@ default = []
 cli = ["uniffi/cli"]
 
 [dependencies]
-eqswift-macros = { version = "0.1.3", path = "../eqswift-macros" }
+eqswift-macros = { version = "0.2.0", path = "../eqswift-macros" }
 uniffi = { version = "0.32" }
 
 [dev-dependencies]
